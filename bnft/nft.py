@@ -7,14 +7,16 @@ from bitshares.account import Account
 from bitshares.amount import Amount
 from bitshares.asset import Asset
 from bitshares.price import Price
+from bitsharesbase.account import PublicKey
 from .decorators import online, unlock
 from .main import main, config
 from .ui import print_tx, format_tx, print_table, print_message
-
+from binascii import hexlify, unhexlify
+from graphenebase.ecdsa import sign_message, verify_message
 
 @main.group()
 def nft():
-    """ Tools for NFTs
+    """ Tools for NFTs.
 
     Creation:
 
@@ -37,6 +39,35 @@ def _valid_SYMBOL_or_throw(symbol):
         return
     else:
         raise Exception("Invalid SYMBOL.")
+
+def _create_and_write_file(filename, data, eof=""):
+    """ Returns number of files successfully written. Will not write
+        if file already exists.  eof generally either "" or "\n".
+    """
+    try:
+        with open(filename, "x") as f:
+            f.write(data)
+            f.write(eof)
+            print("Wrote " + filename + ".")
+            return 1
+    except FileExistsError:
+        print("ERROR: File "+filename+" already exists. NOT overwriting!")
+        return 0
+    except IOError:
+        print("ERROR: Could not write file "+filename)
+        return 0
+
+def _get_pubkey_hex(address):
+    """ Get hex bytes of a public key or address. (Right now works only for
+    bitshares BTS or TEST pubkeys but expect to add suppport for others.
+    """
+    for pfx in ["BTS", "TEST"]:
+        try:
+            P = PublicKey(address, pfx)
+            return P.compressed()
+        except:
+            pass
+    return ""
 
 
 @nft.command()
@@ -72,14 +103,15 @@ def template(ctx, token, title, artist, market, echo):
         "token": token,
         "quantity": 1,
         "short_name": short_name,
-        "description": title + " is a nonfungible artwork token by " +
-                       artist + " on the BitShares blockchain.",
+        "description": title + " is a non-fungible artwork token by " +
+                       artist + ", deployed on the BitShares blockchain.",
         "market": market,
         "whitelist_market": "",
         "media_file": token+"_media.png",
         "media_embed": True,
         "media_multihash": "",
-        "nft_signature": "ADD_SIG_HERE_WHEN_SIGNED",
+        "public_key_or_address": "Public key or bitcoin address, e.g.",
+        "wif_file":"privatekey.wif",
     }
     out_job_template = json.dumps(job_template, indent=2)
 
@@ -103,30 +135,10 @@ May it preserve until the end of time.",
         print(out_nft_template)
 
     files_written = 0
-
     out_job_file = token+"_job.json"
-    try:
-        with open(out_job_file, "x") as f:
-            f.write(out_job_template)
-            f.write("\n")
-            print("Wrote " + out_job_file + ".")
-            files_written += 1
-    except FileExistsError:
-        print("ERROR: File "+out_job_file+" already exists. NOT overwriting!")
-    except IOError:
-        print("ERROR: Could not write file "+out_job_file)
-
     out_nft_file = token+"_nft.json"
-    try:
-        with open(out_nft_file, "x") as f:
-            f.write(out_nft_template)
-            f.write("\n")
-            print("Wrote " + out_nft_file + ".")
-            files_written += 1
-    except FileExistsError:
-        print("ERROR: File "+out_nft_file+" already exists. NOT overwriting!")
-    except IOError:
-        print("ERROR: Could not write file "+out_nft_file)
+    files_written += _create_and_write_file(out_job_file, out_job_template, eof="\n")
+    files_written += _create_and_write_file(out_nft_file, out_nft_template, eof="\n")
 
     if files_written == 2:
         print("Template files have been written. Edit to fill in needed")
@@ -174,21 +186,18 @@ def makeobject(ctx, token, echo):
             media_mh_key: job_data["media_multihash"],
         })
 
+    if job_data["public_key_or_address"]:
+        nft_data.update({
+            "pubkeyhex": _get_pubkey_hex(job_data["public_key_or_address"])
+        })
+
     out_object = json.dumps(nft_data, separators=(',',':'), sort_keys=True)
     if echo:
         print(out_object)
 
     files_written = 0
     out_obj_file = token+"_object.json"
-    try:
-        with open(out_obj_file, "x") as f:
-            f.write(out_object)
-            print("Wrote " + out_obj_file + ".")
-            files_written += 1
-    except FileExistsError:
-        print("ERROR: File "+out_obj_file+" already exists. NOT overwriting!")
-    except IOError:
-        print("ERROR: Could not write file "+out_job_file)
+    files_written += _create_and_write_file(out_obj_file, out_object, eof="")
 
     if files_written == 1:
         print("An NFT object file was written. Please inspect for correctness, but")
@@ -208,7 +217,7 @@ VALIDATIONS = [
     "Signature is valid",
 ]
 
-def _validate_nft_object(obj_json_str, token):
+def _validate_nft_object(obj_json_str, token, signature):
     """ Validate json serialization of an NFT object.
 
     Returns a vector of bools correlated to the VALIDATIONS list.
@@ -245,7 +254,7 @@ def _validate_nft_object(obj_json_str, token):
     ival += 1
     result=True
     rems = []
-    for key in ["title", "artist", "attestation", "narrative"]:
+    for key in ["title", "artist", "attestation", "narrative", "pubkeyhex"]:
         if key not in obj:
             result = False
             rems.append("Missing JSON key: "+key)
@@ -260,9 +269,59 @@ def _validate_nft_object(obj_json_str, token):
 
     ## Validation: Signature
     ival += 1
-    ret[ival] = False # DUMMY
+    result = True
+    rems = []
+    if result:
+        if len(signature.strip()) == 0:
+            rems.append("Signature is empty")
+            result = False
+    if result:
+        try:
+            sigbytes = unhexlify(signature)
+        except:
+            rems.append("Signature is not hex encoded bytes")
+            result = False
+    if result:
+        try:
+            #pubkey = verify_message(obj_json_str, unhexlify(signature))
+            pubkey = verify_message("Hello Whirrled", unhexlify(signature))
+        except:
+            rems.append("Signature is malformed")
+            result = false
+    if result:
+        pubkey_hex = hexlify(pubkey).decode('ascii')
+        pubkey_obj = PublicKey(pubkey_hex)
+        rems.append("Sig Pubkey b58: "+str(pubkey_obj))
+        rems.append("Sig Pubkey hex: "+hexlify(pubkey).decode('ascii'))
+        refpubhex = obj.get("pubkeyhex","")
+        if refpubhex == pubkey_hex:
+            rems.append("Signature MATCHES public key embedded in NFT.")
+        else:
+            rems.append("Signature DOES NOT match public key in NFT object.")
+            result = False
+    ret[ival] = result
+    remarks[ival] = rems
 
     return (ret, remarks)
+
+def _present_validation_results(validations, remarks):
+    PassFail = {True: "  Pass!!", False: "**FAILED**"}
+    fieldwidth = max([len(i) for i in VALIDATIONS])+1
+
+    for i in range(len(validations)):
+        tmplt = "  * %%-%ds %%s"%fieldwidth
+        print(tmplt%(VALIDATIONS[i]+":", PassFail[validations[i]]))
+        for rem in remarks[i]:
+            print("        "+rem)
+    print()
+
+def _read_signature_from_file(filename):
+    try:
+        with open(filename,"rb") as f:
+            signature = f.read().decode('utf-8').strip()
+    except:
+        signature = ""
+    return signature
 
 
 @nft.command()
@@ -283,18 +342,63 @@ def validate(ctx, token, echo):
     with open(obj_file,"rb") as f:
         obj_string = f.read().decode('utf-8')
 
-    (validations, remarks) = _validate_nft_object(obj_string, token)
-
-    PassFail = {True: "  Pass!!", False: "**FAILED**"}
-    fieldwidth = max([len(i) for i in VALIDATIONS])+1
+    sig_file = token+"_sig.hex"
+    signature = _read_signature_from_file(sig_file)
 
     print("Validation Results for "+obj_file+":\n")
-    for i in range(len(validations)):
-        tmplt = "  * %%-%ds %%s"%fieldwidth
-        print(tmplt%(VALIDATIONS[i]+":", PassFail[validations[i]]))
-        for rem in remarks[i]:
-            print("        "+rem)
-    print()
+    (validations, remarks) = _validate_nft_object(obj_string, token, signature)
+    _present_validation_results(validations, remarks)
+
+
+@nft.command()
+@click.argument("token")
+@click.pass_context
+@online
+def inspect(ctx, token):
+    """ Inspect and validate an ASSET.
+
+    Inspect and validate an ASSET on chain or an ASSET_final.json file.
+    """
+    _valid_SYMBOL_or_throw(token)
+
+    try: # Try to get ASSET from chain:
+        A = Asset(token)
+        print("Found asset %s (id %s)."%(A["symbol"], A["id"]))
+        desc = A.get("description","N/A")
+        desc.update(desc) # desc lost get method for some reason.. duck=/=goose.
+        loaded_from_file = False
+    except:
+        print("Asset "+token+" not found in blockchain.")
+        desc_file = token+"_final.json"
+        print("Loading file "+desc_file+"...")
+        try:
+            with open(desc_file,"rb") as f:
+                desc_string = f.read().decode('utf-8')
+        except:
+            print("Error: Could not load file.")
+            return
+        # TODO: some validation of desc_string
+        desc = json.loads(desc_string)
+        loaded_from_file = True
+
+    if not isinstance(desc, dict):
+        print ("Asset "+token+" is not an NFT.")
+        return
+    if not "nft_object" in desc:
+        print ("Asset "+token+" is not an NFT.")
+        return
+    nft_object = desc["nft_object"]
+    nft_string = json.dumps(nft_object, separators=(',',':'), sort_keys=True)
+    signature = desc.get("nft_signature")
+
+    print("\nValidation Results for "+token+":\n")
+    (validations, remarks) = _validate_nft_object(nft_string, token, signature)
+    _present_validation_results(validations, remarks)
+
+    if loaded_from_file:
+        print("Next Steps: If all validations are passing, the next step is to deploy")
+        print("with 'nft deploy "+token+"', or, if you are not the asset issuer,")
+        print("to give "+desc_file+" to your issuing agent for deployment.")
 
 
 @nft.command()
@@ -316,16 +420,18 @@ def finalize(ctx, token, echo):
 
     job_file = token+"_job.json"
     obj_file = token+"_object.json"
+    sig_file = token+"_sig.hex"
 
     job_data = json.load(open(job_file))
-    obj_data = json.load(open(nft_file))
+    obj_data = json.load(open(obj_file))
+    signature = _read_signature_from_file(sig_file)
 
     desc_data = {
         "main": job_data["description"],
         "short_name": job_data["short_name"],
         "market": job_data["market"],
         "nft_object": obj_data,
-        "nft_signature": job_data["nft_signature"],
+        "nft_signature": signature,
     }
 
     out_desc = json.dumps(desc_data, separators=(',',':'), sort_keys=True)
@@ -334,15 +440,7 @@ def finalize(ctx, token, echo):
 
     files_written = 0
     out_desc_file = token+"_final.json"
-    try:
-        with open(out_desc_file, "x") as f:
-            f.write(out_desc)
-            print("Wrote " + out_desc_file + ".")
-            files_written += 1
-    except FileExistsError:
-        print("ERROR: File "+out_desc_file+" already exists. NOT overwriting!")
-    except IOError:
-        print("ERROR: Could not write file "+out_desc_file)
+    files_written += _create_and_write_file(out_desc_file, out_desc, eof="")
 
     if files_written == 1:
         print("An asset description file was written. Please inspect for correctness,")
@@ -356,12 +454,45 @@ def finalize(ctx, token, echo):
 
 @nft.command()
 @click.argument("token")
+@click.option(
+    "--echo", is_flag=True,
+    help="Echo to stdout in addition to writing files."
+)
 @click.pass_context
-def inspect(ctx, token):
-    """ Inspect and validate an ASSET.
+def sign(ctx, token, echo):
+    """ Compile nft asset description.
 
-    Inspect and validate an ASSET on chain or an ASSET_final.json file.
+    Compile nft object, signature, and asset metadata into a complete
+    asset decription suitable for embedding into token.
+
+    Reads [TOKEN]_object.json and writes [TOKEN]_final.json.
     """
     _valid_SYMBOL_or_throw(token)
 
-    # TODO: ...
+    job_file = token+"_job.json"
+    obj_file = token+"_obj.json"
+
+    job_data = json.load(open(job_file))
+#    with open(obj_file,"rb") as f:
+#        obj_string = f.read().decode('utf-8')
+
+    wif_file = job_data["wif_file"]
+    with open(wif_file,"rb") as f:
+        wif_str = f.read().decode('utf-8').strip()
+
+    out_sig = hexlify(sign_message("Hello Whirrled", wif_str)).decode("ascii")
+
+    if echo:
+        print(out_sig)
+
+    files_written = 0
+    out_sig_file = token+"_sig.hex"
+    files_written += _create_and_write_file(out_sig_file, out_sig, eof="\n")
+
+    if files_written == 1:
+        print("A signature file was written.")
+        print("Next steps: validate and finalize the asset.")
+    else:
+        print("Some files were not written. Check files and try again.")
+
+

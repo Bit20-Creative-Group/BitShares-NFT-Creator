@@ -66,6 +66,7 @@ All of the following are required:
 | `attestation` | Here the artist commits or dedicates the artwork to the blockchain, expressly naming the token name or ID under which the work will live, and attests to it's uniquness, e.g. that no other NFT encapsulation exists. (If a piece is a reissue, then the phrasing here should indicate as such. It can then be known that it is a *secondary* rendition, without risk of being confused with the original.) |
 | `encoding` | Typically "base64", and indicates that the binary data of the media item has been serialized to ascii using base64 encoding |
 | `narrative` | A personal statement from the artist describing the work, such as what the work means to them, or what inspired it.  May include details of it's creation, etc.  It's a freeform field, and can be adapted as appropriate for the piece.  Example, if the work is an avatar, playing card, role playing character, etc., then this field may also include stats and abilities, strengths, weaknesses, etc.  |
+| `pubkeyhex` | Hex encoding of the bytes of the artist's public key in compressed form.  This will be used to validate the artist's signature. (NOTE: While this allows to validate the signature, it does not _authenticate_ the signature.  Establishing whether this is in fact the public key of the artist is a separate process.) |
 | | |
 
 

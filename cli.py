@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
 
-from bnft import cli
+from bnftc import cli
 
 cli.main()

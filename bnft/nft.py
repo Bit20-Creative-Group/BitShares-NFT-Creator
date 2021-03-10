@@ -315,6 +315,9 @@ def _present_validation_results(validations, remarks):
             print("        "+rem)
     print()
 
+def _assess_validations(validations):
+    return all(validations)
+
 def _read_signature_from_file(filename):
     try:
         with open(filename,"rb") as f:
@@ -408,6 +411,46 @@ def inspect(ctx, token):
     help="Echo to stdout in addition to writing files."
 )
 @click.pass_context
+def sign(ctx, token, echo):
+    """ Compile nft asset description.
+
+    Compile nft object, signature, and asset metadata into a complete
+    asset decription suitable for embedding into token.
+
+    Reads [TOKEN]_object.json and writes [TOKEN]_final.json.
+    """
+    _valid_SYMBOL_or_throw(token)
+
+    job_file = token+"_job.json"
+    obj_file = token+"_obj.json"
+    job_data = json.load(open(job_file))
+    wif_file = job_data["wif_file"]
+    with open(wif_file,"rb") as f:
+        wif_str = f.read().decode('utf-8').strip()
+
+    out_sig = hexlify(sign_message("Hello Whirrled", wif_str)).decode("ascii")
+
+    if echo:
+        print(out_sig)
+
+    files_written = 0
+    out_sig_file = token+"_sig.hex"
+    files_written += _create_and_write_file(out_sig_file, out_sig, eof="\n")
+
+    if files_written == 1:
+        print("A signature file was written.")
+        print("Next steps: validate and finalize the asset.")
+    else:
+        print("Some files were not written. Check files and try again.")
+
+
+@nft.command()
+@click.argument("token")
+@click.option(
+    "--echo", is_flag=True,
+    help="Echo to stdout in addition to writing files."
+)
+@click.pass_context
 def finalize(ctx, token, echo):
     """ Compile nft asset description.
 
@@ -452,47 +495,76 @@ def finalize(ctx, token, echo):
         print("Some files were not written. Check files and try again.")
 
 
+
+def _yes_i_mean_it(ctx, param, value):
+    """ An extra safety interlock.
+    Only sign/broadcast TX if not precluded by top level options and if
+    --yes option been passed.
+    """
+    nosign = not value
+    ctx.obj["unsigned"] = ctx.obj["unsigned"] or nosign
+    ctx.obj["nobroadcast"] = ctx.obj["nobroadcast"] or nosign
+
 @nft.command()
 @click.argument("token")
 @click.option(
-    "--echo", is_flag=True,
-    help="Echo to stdout in addition to writing files."
+    "--account", help="Active account (else use wallet default)."
+)
+@click.option(
+    "--yes", help="Yes, really do it, (else dry run).",
+    is_flag=True, callback=_yes_i_mean_it
 )
 @click.pass_context
-def sign(ctx, token, echo):
-    """ Compile nft asset description.
+@online
+@unlock
+def deploy(ctx, token, account, yes):
+    """ Deploy a finalized NTF token.
 
-    Compile nft object, signature, and asset metadata into a complete
-    asset decription suitable for embedding into token.
-
-    Reads [TOKEN]_object.json and writes [TOKEN]_final.json.
+    Crafts the asset_create operation and broadcasts. Must include '--yes' option
+    for broadcast, else we do a dry-run.
     """
     _valid_SYMBOL_or_throw(token)
 
-    job_file = token+"_job.json"
-    obj_file = token+"_obj.json"
+    desc_file = token+"_final.json"
+    try:
+        with open(desc_file,"rb") as f:
+            desc_string = f.read().decode('utf-8')
+    except:
+        print("Error: Could not load file.")
+        return
+    # TODO: some validation of desc_string
+    desc = json.loads(desc_string)
 
-    job_data = json.load(open(job_file))
-#    with open(obj_file,"rb") as f:
-#        obj_string = f.read().decode('utf-8')
+    if not isinstance(desc, dict) or not "nft_object" in desc:
+        print (desc_file+" does not describe an NFT.")
+        return
+    nft_object = desc["nft_object"]
+    nft_string = json.dumps(nft_object, separators=(',',':'), sort_keys=True)
+    signature = desc.get("nft_signature")
 
-    wif_file = job_data["wif_file"]
-    with open(wif_file,"rb") as f:
-        wif_str = f.read().decode('utf-8').strip()
+    (validations, remarks) = _validate_nft_object(nft_string, token, signature)
 
-    out_sig = hexlify(sign_message("Hello Whirrled", wif_str)).decode("ascii")
+    if not _assess_validations(validations):
+        print("All validations must pass in order to deploy. Please")
+        print("re-run 'nft validate' for details on validation failures.")
+        return
+    print("Validations PASS.")
 
-    if echo:
-        print(out_sig)
+    print("-----PREVIEW-----")
+    #print(desc_string)
+    print("-----END-PREVIEW-----")
 
-    files_written = 0
-    out_sig_file = token+"_sig.hex"
-    files_written += _create_and_write_file(out_sig_file, out_sig, eof="\n")
+    PRECISION = 0
+    MAX_SUPPLY = 1
 
-    if files_written == 1:
-        print("A signature file was written.")
-        print("Next steps: validate and finalize the asset.")
-    else:
-        print("Some files were not written. Check files and try again.")
+    print_tx(ctx.blockchain.create_asset(
+        symbol=token,
+        precision=PRECISION,
+        max_supply=MAX_SUPPLY,
+        description=desc_string,
+        whitelist_markets=[],
+        account=account,
+    ))
 
+    return
 

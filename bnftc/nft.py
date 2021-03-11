@@ -90,9 +90,9 @@ def _get_pubkey_hex(address):
 )
 @click.pass_context
 def template(ctx, token, title, artist, market, echo):
-    """ Write template files to begin NFT creation.
+    """ Write the template file to begin NFT creation.
 
-    Writes template files for you to fill in to begin the process
+    Writes a template file for you to fill in to begin the process
     of NFT creation.
     """
     _valid_SYMBOL_or_throw(token)
@@ -106,15 +106,13 @@ def template(ctx, token, title, artist, market, echo):
         "description": title + " is a non-fungible artwork token by " +
                        artist + ", deployed on the BitShares blockchain.",
         "market": market,
-        "whitelist_market": "",
+        "whitelist_markets": [market],
         "media_file": token+"_media.png",
         "media_embed": True,
         "media_multihash": "",
-        "public_key_or_address": "Public key or bitcoin address, e.g.",
+        "public_key_or_address": "Memo Public Key (e.g. BTSxxxxx...)",
         "wif_file":"privatekey.wif",
     }
-    out_job_template = json.dumps(job_template, indent=2)
-
     nft_template = {
         "type": "NFT/ART",
         "title": title,
@@ -128,20 +126,21 @@ no prior tokenization of this art exists or has been authorized \
 by me. The work is original, and is fully mine to dedicate in this way. \
 May it preserve until the end of time.",
     }
-    out_nft_template = json.dumps(nft_template, indent=2)
+    template = {
+        "asset": job_template,
+        "nft": nft_template,
+    }
+    out_template = json.dumps(template, indent=4)
 
     if echo:
-        print(out_job_template)
-        print(out_nft_template)
+        print(out_template)
 
     files_written = 0
-    out_job_file = token+"_job.json"
-    out_nft_file = token+"_nft.json"
-    files_written += _create_and_write_file(out_job_file, out_job_template, eof="\n")
-    files_written += _create_and_write_file(out_nft_file, out_nft_template, eof="\n")
+    out_file = token+"_template.json"
+    files_written += _create_and_write_file(out_file, out_template, eof="\n")
 
-    if files_written == 2:
-        print("Template files have been written. Edit to fill in needed")
+    if files_written == 1:
+        print("Template file has been written. Edit to fill in needed")
         print("details and follow up with 'nft makeobject' command.")
     else:
         print("Some files were not written. Check files and try again.")
@@ -157,17 +156,16 @@ May it preserve until the end of time.",
 def makeobject(ctx, token, echo):
     """ Write a canonicalized nft_object blob.
 
-    Reads [TOKEN]_job.json, [TOKEN]_nft.json, and the referenced media
-    file, and productes a canonicalized nft_object blob suitable for
-    signing.
+    Reads [TOKEN]_template.json, and the referenced media file, and
+    produces a canonicalized nft_object blob suitable for signing.
     """
     _valid_SYMBOL_or_throw(token)
 
-    job_file = token+"_job.json"
-    nft_file = token+"_nft.json"
+    template_file = token+"_template.json"
+    template_data = json.load(open(template_file))
 
-    job_data = json.load(open(job_file))
-    nft_data = json.load(open(nft_file))
+    job_data = template_data["asset"]
+    nft_data = template_data["nft"]
 
     media_file = job_data["media_file"]
     key_suff = media_file.split('.')[-1:][0]
@@ -203,7 +201,7 @@ def makeobject(ctx, token, echo):
         print("An NFT object file was written. Please inspect for correctness, but")
         print("note that this file is in canonical form for signing - DO NOT EDIT!")
         print("If changes are needed, delete " + out_obj_file + " and repeat steps")
-        print("above, editing the _job.json or _nft.json file instead.")
+        print("above, editing the template file instead.")
         print("Next steps: validate and digitally sign the object file.")
     else:
         print("Some files were not written. Check files and try again.")
@@ -247,6 +245,10 @@ def _validate_nft_object(obj_json_str, token, signature):
     if "\n" in obj_json_str:
         result = False
         rems.append("File contains line breaks")
+    round_trip_str = json.dumps(obj, separators=(',',':'), sort_keys=True)
+    if obj_json_str != round_trip_str:
+        result = False
+        rems.append("Round-trip decode/encode JSON did not preserve message")
     ret[ival] = result
     remarks[ival] = rems
 
@@ -283,8 +285,7 @@ def _validate_nft_object(obj_json_str, token, signature):
             result = False
     if result:
         try:
-            #pubkey = verify_message(obj_json_str, unhexlify(signature))
-            pubkey = verify_message("Hello Whirrled", unhexlify(signature))
+            pubkey = verify_message(obj_json_str, unhexlify(signature))
         except:
             rems.append("Signature is malformed")
             result = false
@@ -372,16 +373,16 @@ def inspect(ctx, token):
         loaded_from_file = False
     except:
         print("Asset "+token+" not found in blockchain.")
-        desc_file = token+"_final.json"
-        print("Loading file "+desc_file+"...")
+        final_file = token+"_final.json"
+        print("Loading file "+final_file+"...")
         try:
-            with open(desc_file,"rb") as f:
-                desc_string = f.read().decode('utf-8')
+            with open(final_file,"rb") as f:
+                final_string = f.read().decode('utf-8')
         except:
             print("Error: Could not load file.")
             return
-        # TODO: some validation of desc_string
-        desc = json.loads(desc_string)
+        # TODO: some validation of final_string
+        desc = json.loads(final_string)["description"]
         loaded_from_file = True
 
     if not isinstance(desc, dict):
@@ -401,7 +402,7 @@ def inspect(ctx, token):
     if loaded_from_file:
         print("Next Steps: If all validations are passing, the next step is to deploy")
         print("with 'nft deploy "+token+"', or, if you are not the asset issuer,")
-        print("to give "+desc_file+" to your issuing agent for deployment.")
+        print("to give "+final_file+" to your issuing agent for deployment.")
 
 
 @nft.command()
@@ -412,23 +413,25 @@ def inspect(ctx, token):
 )
 @click.pass_context
 def sign(ctx, token, echo):
-    """ Compile nft asset description.
+    """ Digitally sign the nft asset description.
 
-    Compile nft object, signature, and asset metadata into a complete
-    asset decription suitable for embedding into token.
-
-    Reads [TOKEN]_object.json and writes [TOKEN]_final.json.
+    Reads [TOKEN]_object.json and a wif file and writes [TOKEN]_sig.hex.
     """
     _valid_SYMBOL_or_throw(token)
 
-    job_file = token+"_job.json"
-    obj_file = token+"_obj.json"
-    job_data = json.load(open(job_file))
+    template_file = token+"_template.json"
+    template_data = json.load(open(template_file))
+    job_data = template_data["asset"]
+
+    obj_file = token+"_object.json"
     wif_file = job_data["wif_file"]
     with open(wif_file,"rb") as f:
         wif_str = f.read().decode('utf-8').strip()
 
-    out_sig = hexlify(sign_message("Hello Whirrled", wif_str)).decode("ascii")
+    with open(obj_file,"rb") as f:
+        obj_string = f.read().decode('utf-8')
+
+    out_sig = hexlify(sign_message(obj_string, wif_str)).decode("ascii")
 
     if echo:
         print(out_sig)
@@ -461,12 +464,14 @@ def finalize(ctx, token, echo):
     """
     _valid_SYMBOL_or_throw(token)
 
-    job_file = token+"_job.json"
-    obj_file = token+"_object.json"
-    sig_file = token+"_sig.hex"
+    template_file = token+"_template.json"
+    template_data = json.load(open(template_file))
+    job_data = template_data["asset"]
 
-    job_data = json.load(open(job_file))
+    obj_file = token+"_object.json"
     obj_data = json.load(open(obj_file))
+
+    sig_file = token+"_sig.hex"
     signature = _read_signature_from_file(sig_file)
 
     desc_data = {
@@ -477,18 +482,30 @@ def finalize(ctx, token, echo):
         "nft_signature": signature,
     }
 
-    out_desc = json.dumps(desc_data, separators=(',',':'), sort_keys=True)
+    whitelist_markets = job_data["whitelist_markets"]
+    if isinstance(whitelist_markets, str):
+        whitelist_markets = [whitelist_markets]
+    whitelist_markets = [symbol for symbol in whitelist_markets if symbol]
+
+    final_data = {
+        "description": desc_data,
+        "max_supply": job_data["quantity"],
+        "symbol": token,
+        "whitelist_markets": whitelist_markets,
+    }
+
+    out_final = json.dumps(final_data, separators=(',',':'), sort_keys=True)
     if echo:
-        print(out_desc)
+        print(out_final)
 
     files_written = 0
-    out_desc_file = token+"_final.json"
-    files_written += _create_and_write_file(out_desc_file, out_desc, eof="")
+    out_final_file = token+"_final.json"
+    files_written += _create_and_write_file(out_final_file, out_final, eof="")
 
     if files_written == 1:
-        print("An asset description file was written. Please inspect for correctness,")
+        print("An asset deployment file was written. Please inspect for correctness,")
         print("but note that this file is in canonical form - DO NOT EDIT!")
-        print("If changes are needed, delete " + out_desc_file + " and repeat some")
+        print("If changes are needed, delete " + out_final_file + " and repeat some")
         print("or all of the steps above.")
         print("Next steps: inspect and deploy the asset.")
     else:
@@ -525,18 +542,18 @@ def deploy(ctx, token, account, yes):
     """
     _valid_SYMBOL_or_throw(token)
 
-    desc_file = token+"_final.json"
+    final_file = token+"_final.json"
     try:
-        with open(desc_file,"rb") as f:
-            desc_string = f.read().decode('utf-8')
+        final_data = json.load(open(final_file))
     except:
         print("Error: Could not load file.")
         return
-    # TODO: some validation of desc_string
-    desc = json.loads(desc_string)
+    # TODO: some validation of final_string and desc
+    desc = final_data["description"]
+    desc_string = json.dumps(desc, separators=(',',':'), sort_keys=True)
 
     if not isinstance(desc, dict) or not "nft_object" in desc:
-        print (desc_file+" does not describe an NFT.")
+        print (final_file+" does not describe an NFT deployment.")
         return
     nft_object = desc["nft_object"]
     nft_string = json.dumps(nft_object, separators=(',',':'), sort_keys=True)
@@ -555,16 +572,20 @@ def deploy(ctx, token, account, yes):
     print("-----END-PREVIEW-----")
 
     PRECISION = 0
-    MAX_SUPPLY = 1
 
     print_tx(ctx.blockchain.create_asset(
         symbol=token,
         precision=PRECISION,
-        max_supply=MAX_SUPPLY,
+        max_supply=final_data["max_supply"],
         description=desc_string,
-        whitelist_markets=[],
+        whitelist_markets=final_data["whitelist_markets"],
         account=account,
     ))
+
+    if not yes:
+        # for some reason we end up here even if we do pass --yes...
+        print("NOTICE: This was a dry run, asset_create not broadcast. To deploy")
+        print("for real, please pass --yes option.")
 
     return
 

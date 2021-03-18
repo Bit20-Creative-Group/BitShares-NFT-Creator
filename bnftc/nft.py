@@ -521,6 +521,7 @@ def _yes_i_mean_it(ctx, param, value):
     nosign = not value
     ctx.obj["unsigned"] = ctx.obj["unsigned"] or nosign
     ctx.obj["nobroadcast"] = ctx.obj["nobroadcast"] or nosign
+    return value
 
 @nft.command()
 @click.argument("token")
@@ -567,9 +568,9 @@ def deploy(ctx, token, account, yes):
         return
     print("Validations PASS.")
 
-    print("-----PREVIEW-----")
+    #print("-----PREVIEW-----")
     #print(desc_string)
-    print("-----END-PREVIEW-----")
+    #print("-----END-PREVIEW-----")
 
     PRECISION = 0
 
@@ -583,7 +584,6 @@ def deploy(ctx, token, account, yes):
     ))
 
     if not yes:
-        # for some reason we end up here even if we do pass --yes...
         print("NOTICE: This was a dry run, asset_create not broadcast. To deploy")
         print("for real, please pass --yes option.")
 

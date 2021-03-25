@@ -574,11 +574,34 @@ def deploy(ctx, token, account, yes):
 
     PRECISION = 0
 
-    print_tx(ctx.blockchain.create_asset(
+    permissions = {
+        "charge_market_fee": False,
+        "white_list": False,
+        "override_authority": False,
+        "transfer_restricted": False,
+        "disable_confidential": False,
+        "lock_max_supply": True
+    }
+
+    flags = {
+        "charge_market_fee": False,
+        "white_list": False,
+        "override_authority": False,
+        "transfer_restricted": False,
+        "disable_confidential": False,
+        "lock_max_supply": True
+    }
+
+    #print_tx(ctx.blockchain.create_asset(
+    from .asset_create_hack import _create_asset # TEMP workaround for new permissions
+    print_tx(_create_asset(      # TEMP use modified create_asset
+        instance=ctx.blockchain, # TEMP (normally would be implicit 'self')
         symbol=token,
         precision=PRECISION,
         max_supply=final_data["max_supply"],
         description=desc_string,
+        permissions=permissions,
+        flags=flags,
         whitelist_markets=final_data["whitelist_markets"],
         account=account,
     ))
@@ -588,4 +611,3 @@ def deploy(ctx, token, account, yes):
         print("for real, please pass --yes option.")
 
     return
-

@@ -13,6 +13,7 @@ from .main import main, config
 from .ui import print_tx, format_tx, print_table, print_message
 from binascii import hexlify, unhexlify
 from graphenebase.ecdsa import sign_message, verify_message
+from graphenebase.account import Address
 
 @main.group()
 def nft():
@@ -20,8 +21,8 @@ def nft():
 
     Creation:
 
-    General sequence: Create template files with `nft template`. Edit
-    those template files, make an object file with `nft makeobject`.
+    General sequence: Create template file with `nft template`. Edit
+    the template file. Make an object file with `nft makeobject`.
     Sign object with GPG or with `nft sign`. Add signature to job
     template. Check that job validates with `nft validate`. Make
     description file with `nft finalize`. Deploy with `nft deploy`.
@@ -69,6 +70,25 @@ def _get_pubkey_hex(address):
             pass
     return ""
 
+def _get_sig_bytes(sigstring):
+    """ Take a signature which is encoded in hexadecimal, base64, or ...,
+    and convert to bytes, else throw.
+    """
+    try: # Is it hex?
+        sigbytes = unhexlify(sigstring)
+    except:
+        pass # fall through to next try
+    else:
+        print("**** Decoded sigbytes from HEX as: %s"%hexlify(sigbytes).decode('ascii'))
+        return sigbytes
+    try:
+        sigbytes = base64.b64decode(sigstring, validate=True)
+    except:
+        pass
+    else:
+        print("**** Decoded sigbytes from B64 as: %s"%hexlify(sigbytes).decode('ascii'))
+        return sigbytes
+    raise Exception("Signature string did not match any known encoding.")
 
 @nft.command()
 @click.argument("token")
@@ -110,14 +130,14 @@ def template(ctx, token, title, artist, market, echo):
         "media_file": token+"_media.png",
         "media_embed": True,
         "media_multihash": "",
-        "public_key_or_address": "Memo Public Key (e.g. BTSxxxxx...)",
+        "public_key_or_address": "Artist's public key or address used to sign NFT object",
         "wif_file":"privatekey.wif",
     }
     nft_template = {
         "type": "NFT/ART",
         "title": title,
         "artist": artist,
-        "narrative": "Artist describes work here.",
+        "narrative": "Artist describes work here...",
         "attestation": "\
 I, " + artist + ", originator of the work herein, \
 hereby commit this piece of art to the BitShares blockchain, \
@@ -125,6 +145,14 @@ to live as the token named " + token + ", and attest that \
 no prior tokenization of this art exists or has been authorized \
 by me. The work is original, and is fully mine to dedicate in this way. \
 May it preserve until the end of time.",
+        "tags": "",
+        "_flags_comment": "Comma separated list of FLAG keywords. E.g. NSFW",
+        "flags": "",
+        "acknowledgments": "",
+        "_license_comment": "E.g. 'CC BY-NC-SA-2.0', etc.",
+        "license": "CC BY-NC-SA-2.0",
+        "_holder_license_comment": "If token grants any special rights to the holder, declare them here.",
+        "holder_license": "",
     }
     template = {
         "asset": job_template,
@@ -167,6 +195,12 @@ def makeobject(ctx, token, echo):
     job_data = template_data["asset"]
     nft_data = template_data["nft"]
 
+    for key in [key for key in nft_data.keys() if key[0]=="_"]:
+        del nft_data[key]   # remove comment fields
+
+    for key in [key for key in nft_data.keys() if nft_data[key]==""]:
+        del nft_data[key]   # remove empty fields
+
     media_file = job_data["media_file"]
     key_suff = media_file.split('.')[-1:][0]
     media_key = "image_"+(key_suff or "data")
@@ -186,7 +220,7 @@ def makeobject(ctx, token, echo):
 
     if job_data["public_key_or_address"]:
         nft_data.update({
-            "pubkeyhex": _get_pubkey_hex(job_data["public_key_or_address"])
+            "sig_pubkey_or_address": job_data["public_key_or_address"]
         })
 
     out_object = json.dumps(nft_data, separators=(',',':'), sort_keys=True)
@@ -256,7 +290,10 @@ def _validate_nft_object(obj_json_str, token, signature):
     ival += 1
     result=True
     rems = []
-    for key in ["title", "artist", "attestation", "narrative", "pubkeyhex"]:
+    for key in [
+            "type", "title", "artist", "attestation",
+            "narrative", "sig_pubkey_or_address", "encoding"
+    ]:
         if key not in obj:
             result = False
             rems.append("Missing JSON key: "+key)
@@ -279,20 +316,23 @@ def _validate_nft_object(obj_json_str, token, signature):
             result = False
     if result:
         try:
-            sigbytes = unhexlify(signature)
+            sigbytes = _get_sig_bytes(signature)
         except:
-            rems.append("Signature is not hex encoded bytes")
+            rems.append("Signature could not be decoded.")
             result = False
     if result:
         try:
-            pubkey = verify_message(obj_json_str, unhexlify(signature))
+            pubkey = verify_message(obj_json_str, sigbytes)
         except:
             rems.append("Signature is malformed")
-            result = false
+            result = False
     if result:
         pubkey_hex = hexlify(pubkey).decode('ascii')
         pubkey_obj = PublicKey(pubkey_hex)
+        btc_addr = Address.from_pubkey(pubkey_hex, compressed=True,
+                                       version=2, prefix=" ") # TODO this still isn't right
         rems.append("Sig Pubkey b58: "+str(pubkey_obj))
+        rems.append("Sig Pubkey BTC: "+str(btc_addr))
         rems.append("Sig Pubkey hex: "+hexlify(pubkey).decode('ascii'))
         refpubhex = obj.get("pubkeyhex","")
         if refpubhex == pubkey_hex:
@@ -346,7 +386,7 @@ def validate(ctx, token, echo):
     with open(obj_file,"rb") as f:
         obj_string = f.read().decode('utf-8')
 
-    sig_file = token+"_sig.hex"
+    sig_file = token+"_sig.txt"
     signature = _read_signature_from_file(sig_file)
 
     print("Validation Results for "+obj_file+":\n")
@@ -408,14 +448,24 @@ def inspect(ctx, token):
 @nft.command()
 @click.argument("token")
 @click.option(
+    "--sig",
+    help="Use this as signature. (Useful when signed with external utility) " +
+    " Sig must be ascii encoded in hex, base64, or similar.",
+)
+@click.option(
     "--echo", is_flag=True,
     help="Echo to stdout in addition to writing files."
 )
 @click.pass_context
-def sign(ctx, token, echo):
-    """ Digitally sign the nft asset description.
+def sign(ctx, token, sig, echo):
+    """ Digitally sign the nft object blob.
 
-    Reads [TOKEN]_object.json and a wif file and writes [TOKEN]_sig.hex.
+    Reads [TOKEN]_object.json and a wif file and writes [TOKEN]_sig.txt. The
+    signature file will be a single-line ascii hex-encoding of the signature
+    bytes. If supplying your own signature file, an ascii encoding, such as
+    hex or base64, is expected.  A signature generated by an external utility
+    can be supplied via the --sig option, which will bypass generation and
+    write the provided signature.
     """
     _valid_SYMBOL_or_throw(token)
 
@@ -424,20 +474,22 @@ def sign(ctx, token, echo):
     job_data = template_data["asset"]
 
     obj_file = token+"_object.json"
-    wif_file = job_data["wif_file"]
-    with open(wif_file,"rb") as f:
-        wif_str = f.read().decode('utf-8').strip()
-
     with open(obj_file,"rb") as f:
         obj_string = f.read().decode('utf-8')
 
-    out_sig = hexlify(sign_message(obj_string, wif_str)).decode("ascii")
+    if not sig:
+        wif_file = job_data["wif_file"]
+        with open(wif_file,"rb") as f:
+            wif_str = f.read().decode('utf-8').strip()
+        out_sig = hexlify(sign_message(obj_string, wif_str)).decode("ascii")
+    else:
+        out_sig = sig
 
     if echo:
         print(out_sig)
 
     files_written = 0
-    out_sig_file = token+"_sig.hex"
+    out_sig_file = token+"_sig.txt"
     files_written += _create_and_write_file(out_sig_file, out_sig, eof="\n")
 
     if files_written == 1:

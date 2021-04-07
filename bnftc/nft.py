@@ -9,6 +9,7 @@ from bitshares.asset import Asset
 from bitshares.price import Price
 from bitsharesbase.account import PublicKey
 from .decorators import online, unlock
+from .sig_parser import SigParser
 from .main import main, config
 from .ui import print_tx, format_tx, print_table, print_message
 from binascii import hexlify, unhexlify
@@ -310,35 +311,36 @@ def _validate_nft_object(obj_json_str, token, signature):
     ival += 1
     result = True
     rems = []
+    sigparse = SigParser(obj_json_str, signature)
+    ref_address = obj.get(
+        "sig_pubkey_or_address",
+        obj.get("pubkeyhex", "NONE_PROVIDED") # fallback to deprecated field
+    )
     if result:
         if len(signature.strip()) == 0:
             rems.append("Signature is empty")
             result = False
     if result:
-        try:
-            sigbytes = _get_sig_bytes(signature)
-        except:
+        if not sigparse.hasSigBytes():
             rems.append("Signature could not be decoded.")
             result = False
     if result:
-        try:
-            pubkey = verify_message(obj_json_str, sigbytes)
-        except:
+        if not sigparse.hasPubKeys():
             rems.append("Signature is malformed")
             result = False
     if result:
-        pubkey_hex = hexlify(pubkey).decode('ascii')
-        pubkey_obj = PublicKey(pubkey_hex)
-        btc_addr = Address.from_pubkey(pubkey_hex, compressed=True,
-                                       version=2, prefix=" ") # TODO this still isn't right
-        rems.append("Sig Pubkey b58: "+str(pubkey_obj))
-        rems.append("Sig Pubkey BTC: "+str(btc_addr))
-        rems.append("Sig Pubkey hex: "+hexlify(pubkey).decode('ascii'))
-        refpubhex = obj.get("pubkeyhex","")
-        if refpubhex == pubkey_hex:
-            rems.append("Signature MATCHES public key embedded in NFT.")
-        else:
-            rems.append("Signature DOES NOT match public key in NFT object.")
+        found_match = False
+        for addr in sigparse.addresses:
+            if addr == ref_address:
+                rems.append("Recoverred MATCHING address: ==> %s"%addr)
+                found_match = True
+            else:
+                rems.append("Recoverred non-matching address: %s"%addr)
+        if not found_match:
+            rems.append(
+                "Could not recover address %s from signature." %
+                ref_address
+            )
             result = False
     ret[ival] = result
     remarks[ival] = rems

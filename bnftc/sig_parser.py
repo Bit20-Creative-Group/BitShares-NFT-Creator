@@ -1,4 +1,4 @@
-# sig_validator.py
+# sig_parser.py
 #
 # Provides a class for recovering public keys from a message and a
 # signature, where the signature may have been produced via a variety
@@ -110,6 +110,24 @@ def format_as_btstestnet_pubkey(pubkeybytes):
     pubkey = PublicKey(pubkey_hex, prefix="TEST")
     return str(pubkey)
 
+class SigParser:
+
+    def __init__(self, message, sigstring):
+        self.message = message
+        self.sigstring = sigstring
+        self.sigbytes = _get_sig_bytes(self.sigstring)
+        self.pubkeys = _recover_pubkeys(message, self.sigbytes)
+        self.addresses = _get_addresses_from_pubkeys(self.pubkeys)
+
+    def hasSigBytes(self):
+        return self.sigbytes is not None
+
+    def hasPubKeys(self):
+        return len(self.pubkeys) > 0
+
+    def hasAddresses(self):
+        return len(self.addresses) > 0
+
 
 if __name__ == '__main__':
     print("Recoverers: ", _SIGRECOVERERS)
@@ -126,3 +144,8 @@ if __name__ == '__main__':
 
     print("Recovered Addresses:")
     print(*["  %s\n"%addr for addr in get_addresses_from_sig(message,sigstring)], sep='')
+
+    SP = SigParser(message, sigstring)
+    print("Parser has sigbytes: ", SP.hasSigBytes())
+    print("Parser has pubkeys:  ", SP.hasPubKeys())
+    print("Parser has addresses:", SP.hasAddresses())

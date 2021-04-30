@@ -5,8 +5,10 @@
 # of disparate algorithms.
 #
 import base64
+import hashlib
 from binascii import hexlify, unhexlify
 from graphenebase.ecdsa import verify_message
+from graphenebase.base58 import ripemd160, doublesha256, base58encode
 from bitsharesbase.account import PublicKey
 
 _SIGRECOVERERS = []
@@ -113,8 +115,31 @@ def format_as_graphene_pubkeys(pubkeybytes):
 @register_address_formatter()
 def format_as_bitcoin_address(pubkeybytes):
     pubkey_hex = hexlify(pubkeybytes).decode('ascii')
-    pubkey = PublicKey(pubkey_hex, prefix="NOTBITCOIN")
-    return str(pubkey)
+    return [
+        _bitcoin_address_helper(pubkey_hex, compressed=True, version=0),
+        _bitcoin_address_helper(pubkey_hex, compressed=False, version=0),
+    ]
+
+def _bitcoin_address_helper(pubkey_hex, compressed=True, version=0):
+    """ Construct a bitcoin-style address from public key, version, and
+    compressed flag. References:
+    https://learnmeabitcoin.com/technical/public-key-hash
+    https://learnmeabitcoin.com/technical/address
+    Versions:
+        0 - P2PKH (mainnet) (addrs start with '1')
+        5 - P2SH (mainnet)  (addrs start with '3')
+    """
+    pubkey = PublicKey(pubkey_hex)
+    if compressed:
+        pubkey_plain = pubkey.compressed()
+    else:
+        pubkey_plain = pubkey.uncompressed()
+    sha = hashlib.sha256(unhexlify(pubkey_plain)).hexdigest()
+    rep = hexlify(ripemd160(sha)).decode("ascii")
+    s = ("%.2x" % version) + rep
+    result = s + hexlify(doublesha256(s)[:4]).decode("ascii")
+    return base58encode(result)
+
 
 class SigParser:
 

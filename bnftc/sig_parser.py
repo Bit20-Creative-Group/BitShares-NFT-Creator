@@ -53,9 +53,11 @@ def _get_addresses_from_pubkeys(pubkeybytes_list):
     addresses =[]
     for pub in pubkeybytes_list:
         for f in _ADDRESSFORMATTERS:
-            address = f(pub)
-            if address:
-                addresses.append(address)
+            found_addresses = f(pub)
+            if found_addresses:
+                if not isinstance(found_addresses, list):
+                    found_addresses = [found_addresses]
+                addresses.extend(found_addresses)
     return addresses
 
 def get_addresses_from_sig(message, sigstring):
@@ -99,15 +101,19 @@ def format_as_hex_bytes(pubkeybytes):
     return pubkey_hex
 
 @register_address_formatter()
-def format_as_bts_pubkey(pubkeybytes):
+def format_as_graphene_pubkeys(pubkeybytes):
     pubkey_hex = hexlify(pubkeybytes).decode('ascii')
-    pubkey = PublicKey(pubkey_hex, prefix="BTS")
-    return str(pubkey)
+    pubkeys = [
+        str(PublicKey(pubkey_hex, prefix="BTS")),
+        str(PublicKey(pubkey_hex, prefix="TEST")),
+        str(PublicKey(pubkey_hex, prefix="STM")),
+    ]
+    return pubkeys
 
 @register_address_formatter()
-def format_as_btstestnet_pubkey(pubkeybytes):
+def format_as_bitcoin_address(pubkeybytes):
     pubkey_hex = hexlify(pubkeybytes).decode('ascii')
-    pubkey = PublicKey(pubkey_hex, prefix="TEST")
+    pubkey = PublicKey(pubkey_hex, prefix="NOTBITCOIN")
     return str(pubkey)
 
 class SigParser:

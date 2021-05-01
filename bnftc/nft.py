@@ -330,12 +330,15 @@ def _present_validation_results(validations, remarks):
 def _assess_validations(validations):
     return all(validations)
 
-def _read_signature_from_file(filename):
+def _read_signature_from_file(filename, default = None):
     try:
         with open(filename,"rb") as f:
             signature = f.read().decode('utf-8').strip()
     except:
-        signature = ""
+        if default is not None:
+            signature = default
+        else:
+            raise Exception("Could not read signature file %s"%filename)
     return signature
 
 
@@ -358,7 +361,7 @@ def validate(ctx, token, echo):
         obj_string = f.read().decode('utf-8')
 
     sig_file = token+"_sig.txt"
-    signature = _read_signature_from_file(sig_file)
+    signature = _read_signature_from_file(sig_file, default="")
 
     print("Validation Results for "+obj_file+":\n")
     (validations, remarks) = _validate_nft_object(obj_string, token, signature)
@@ -494,7 +497,7 @@ def finalize(ctx, token, echo):
     obj_file = token+"_object.json"
     obj_data = json.load(open(obj_file))
 
-    sig_file = token+"_sig.hex"
+    sig_file = token+"_sig.txt"
     signature = _read_signature_from_file(sig_file)
 
     desc_data = {

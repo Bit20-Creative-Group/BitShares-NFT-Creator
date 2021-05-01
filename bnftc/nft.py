@@ -59,37 +59,6 @@ def _create_and_write_file(filename, data, eof=""):
         print("ERROR: Could not write file "+filename)
         return 0
 
-def _get_pubkey_hex(address):
-    """ Get hex bytes of a public key or address. (Right now works only for
-    bitshares BTS or TEST pubkeys but expect to add suppport for others.
-    """
-    for pfx in ["BTS", "TEST"]:
-        try:
-            P = PublicKey(address, pfx)
-            return P.compressed()
-        except:
-            pass
-    return ""
-
-def _get_sig_bytes(sigstring):
-    """ Take a signature which is encoded in hexadecimal, base64, or ...,
-    and convert to bytes, else throw.
-    """
-    try: # Is it hex?
-        sigbytes = unhexlify(sigstring)
-    except:
-        pass # fall through to next try
-    else:
-        print("**** Decoded sigbytes from HEX as: %s"%hexlify(sigbytes).decode('ascii'))
-        return sigbytes
-    try:
-        sigbytes = base64.b64decode(sigstring, validate=True)
-    except:
-        pass
-    else:
-        print("**** Decoded sigbytes from B64 as: %s"%hexlify(sigbytes).decode('ascii'))
-        return sigbytes
-    raise Exception("Signature string did not match any known encoding.")
 
 @nft.command()
 @click.argument("token")

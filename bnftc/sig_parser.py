@@ -97,6 +97,36 @@ def recover_raw_ecdsa(message, sigbytes):
     else:
         return pubkeybytes
 
+@register_sig_recovery()
+def recover_bitcoinqt_ecdsa(message, sigbytes):
+    padded_message = _length_encode("Bitcoin Signed Message:\n")
+    padded_message += _length_encode(message)
+    hashed_message = hashlib.sha256(padded_message).digest()
+    try:
+        pubkeybytes = verify_message(hashed_message, sigbytes)
+    except:
+        return None
+    else:
+        return pubkeybytes
+
+def _length_encode(message):
+    """ Return message as bytes array prefixed with varint length
+    """
+    return (_varint_bitcoinqt(len(message)) + bytes(message, 'utf8'))
+
+def _varint_bitcoinqt(num):
+    """ Return varint as a bytes array.  Adapted from here:
+    https://github.com/weex/bitcoin-signature-tool/blob/master/js/bitcoinsig.js
+    """
+    if num < 0xfd:
+        return bytes([num])
+    elif num < 0xffff:
+        return bytes([0xfd, num & 255, num >> 8])
+    elif num < 0xffffffff:
+        return bytes([0xfe, num & 255, (num >> 8) & 255, (num >> 16) & 255, num >> 24])
+    else:
+        raise Exception("Varint value too big")
+
 @register_address_formatter()
 def format_as_hex_bytes(pubkeybytes):
     pubkey_hex = hexlify(pubkeybytes).decode('ascii')

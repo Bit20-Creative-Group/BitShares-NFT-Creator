@@ -65,22 +65,19 @@ def _create_and_write_file(filename, data, eof=""):
 @click.argument("token")
 @click.option(
     "--title", help="Title of the artwork. (Will also be used as coin's " +
-    "short_name up to 32 chars.)",
-    default="My NFT Art"
-)
+    "short_name up to 32 chars.)", default="My NFT Art")
 @click.option(
     "--artist", help="Artists name or identity",
-    default="Some Great Artist"
-)
-@click.option(
-    "--market", help="SYMBOL of coin this NFT trades against"
-)
+    default="Some Great Artist")
+@click.option("--market", help="SYMBOL of coin this NFT trades against")
 @click.option(
     "--echo", is_flag=True,
-    help="Echo template to stdout in addition to writing files."
-)
+    help="Echo template to stdout in addition to writing files.")
+@click.option(
+    "--extra", is_flag=True,
+    help="Include extra (less common) fields in template file.")
 @click.pass_context
-def template(ctx, token, title, artist, market, echo):
+def template(ctx, token, title, artist, market, echo, extra):
     """ Write the template file to begin NFT creation.
 
     Writes a template file for you to fill in to begin the process
@@ -131,6 +128,13 @@ been authorized by me.",
         "_holder_license_comment": "If token grants any special rights to the holder, declare them here.",
         "holder_license": "",
     }
+    if extra:
+        nft_template.update({
+            "displayprefs_media":
+            {
+                "background-color": ""
+            },
+        })
     template = {
         "asset": job_template,
         "nft": nft_template,
@@ -177,6 +181,7 @@ def makeobject(ctx, token, echo):
 
     for key in [key for key in nft_data.keys() if nft_data[key]==""]:
         del nft_data[key]   # remove empty fields
+                            # TODO: This doesn't prune nested objects
 
     media_file = job_data["media_file"]
     key_suff = media_file.split('.')[-1:][0].lower()

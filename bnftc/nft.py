@@ -3,6 +3,7 @@ import base64
 import json
 import sys
 import re
+import os
 from bitshares.account import Account
 from bitshares.amount import Amount
 from bitshares.asset import Asset
@@ -89,6 +90,13 @@ def template(ctx, token, title, artist, market, echo):
 
     short_name = title[0:32] # short_name field limit in Ref UI supposedly
 
+    media_file = token+"_media.png"
+    for filesuffix in ["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "gif", "GIF"]:
+        maybe_file = token+"_media."+filesuffix
+        if os.path.isfile(maybe_file):
+            media_file = maybe_file
+            break
+
     job_template = {
         "token": token,
         "quantity": 1,
@@ -97,24 +105,23 @@ def template(ctx, token, title, artist, market, echo):
                        artist + ", deployed on the BitShares blockchain.",
         "market": market,
         "whitelist_markets": [market],
-        "media_file": token+"_media.png",
+        "media_file": media_file,
         "media_embed": True,
         "media_multihash": "",
         "public_key_or_address": "Artist's public key or address used to sign NFT object",
         "wif_file":"privatekey.wif",
     }
     nft_template = {
-        "type": "NFT/ART",
+        "type": "NFT/ART/VISUAL",
         "title": title,
         "artist": artist,
         "narrative": "Artist describes work here...",
         "attestation": "\
-I, " + artist + ", originator of the work herein, \
-hereby commit this piece of art to the BitShares blockchain, \
-to live as the token named " + token + ", and attest that \
-no prior tokenization of this art exists or has been authorized \
-by me. The work is original, and is fully mine to dedicate in this way. \
-May it preserve until the end of time.",
+I, " + artist + ", originator of the work herein, hereby commit this \
+artwork to the BitShares blockchain, to live as the token \
+named " + token + ". Further, I attest that the work herein is a first \
+edition, and that no prior tokenization of this artwork exists or has \
+been authorized by me.",
         "tags": "",
         "_flags_comment": "Comma separated list of FLAG keywords. E.g. NSFW",
         "flags": "",
@@ -172,9 +179,11 @@ def makeobject(ctx, token, echo):
         del nft_data[key]   # remove empty fields
 
     media_file = job_data["media_file"]
-    key_suff = media_file.split('.')[-1:][0]
-    media_key = "image_"+(key_suff or "data")
-    media_mh_key = "image_"+(key_suff or "data")+"_multihash"
+    key_suff = media_file.split('.')[-1:][0].lower()
+    if key_suff == "jpg":
+        key_suff = "jpeg"
+    media_key = "media_"+(key_suff or "data")
+    media_mh_key = "media_"+(key_suff or "data")+"_multihash"
 
     if job_data.get("media_embed",True):
         b64 = base64.b64encode(open(media_file,"rb").read()).decode('ascii')

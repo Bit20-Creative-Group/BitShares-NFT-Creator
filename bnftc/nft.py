@@ -97,6 +97,8 @@ def template(ctx, token, title, artist, market, echo, extra):
     job_template = {
         "token": token,
         "quantity": 1,
+        "issue_to_id": "1.2.x",
+        "issue_to_name": "account-name",
         "short_name": short_name,
         "description": title + " is a non-fungible artwork token by " +
                        artist + ".",

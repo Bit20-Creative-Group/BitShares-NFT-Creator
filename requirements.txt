@@ -1,0 +1,5 @@
+click
+prettytable
+bitshares
+pygments
+pyyaml

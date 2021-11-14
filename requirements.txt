@@ -3,3 +3,4 @@ prettytable
 bitshares
 pygments
 pyyaml
+uptick

@@ -9,13 +9,14 @@ from bitshares.amount import Amount
 from bitshares.asset import Asset
 from bitshares.price import Price
 from bitsharesbase.account import PublicKey
-from .decorators import online, unlock
-from .sig_parser import SigParser
-from .main import main, config
-from .ui import print_tx, format_tx, print_table, print_message
+from decorators import online, unlock
+from sig_parser import SigParser
+from main import main, config
+from ui import print_tx, format_tx, print_table, print_message
 from binascii import hexlify, unhexlify
 from graphenebase.ecdsa import sign_message, verify_message
 from graphenebase.account import Address
+
 
 @main.group()
 def nft():
@@ -43,6 +44,7 @@ def _valid_SYMBOL_or_throw(symbol):
     else:
         raise Exception("Invalid SYMBOL.")
 
+
 def _create_and_write_file(filename, data, eof=""):
     """ Returns number of files successfully written. Will not write
         if file already exists.  eof generally either "" or "\n".
@@ -51,13 +53,13 @@ def _create_and_write_file(filename, data, eof=""):
         with open(filename, "x") as f:
             f.write(data)
             f.write(eof)
-            print("Wrote " + filename + ".")
+            print(f"Wrote {filename}.")
             return 1
     except FileExistsError:
-        print("ERROR: File "+filename+" already exists. NOT overwriting!")
+        print(f"ERROR: File {filename} already exists. NOT overwriting!")
         return 0
     except IOError:
-        print("ERROR: Could not write file "+filename)
+        print(f"ERROR: Could not write file {filename}")
         return 0
 
 
@@ -85,11 +87,11 @@ def template(ctx, token, title, artist, market, echo, extra):
     """
     _valid_SYMBOL_or_throw(token)
 
-    short_name = title[0:32] # short_name field limit in Ref UI supposedly
+    short_name = title[0:32]  # short_name field limit in Ref UI supposedly
 
     media_file = token+"_media.png"
     for filesuffix in ["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "gif", "GIF"]:
-        maybe_file = token+"_media."+filesuffix
+        maybe_file = f"{token}_media.{filesuffix}"
         if os.path.isfile(maybe_file):
             media_file = maybe_file
             break
@@ -147,7 +149,7 @@ been authorized by me.",
         print(out_template)
 
     files_written = 0
-    out_file = token+"_template.json"
+    out_file = f"{token}_template.json"
     files_written += _create_and_write_file(out_file, out_template, eof="\n")
 
     if files_written == 1:
@@ -172,16 +174,16 @@ def makeobject(ctx, token, echo):
     """
     _valid_SYMBOL_or_throw(token)
 
-    template_file = token+"_template.json"
+    template_file = f"{token}_template.json"
     template_data = json.load(open(template_file))
 
     job_data = template_data["asset"]
     nft_data = template_data["nft"]
 
-    for key in [key for key in nft_data.keys() if key[0]=="_"]:
+    for key in [key for key in nft_data.keys() if key[0] == "_"]:
         del nft_data[key]   # remove comment fields
 
-    for key in [key for key in nft_data.keys() if nft_data[key]==""]:
+    for key in [key for key in nft_data.keys() if nft_data[key] == ""]:
         del nft_data[key]   # remove empty fields
                             # TODO: This doesn't prune nested objects
 
@@ -192,11 +194,11 @@ def makeobject(ctx, token, echo):
     media_key = "media_"+(key_suff or "data")
     media_mh_key = "media_"+(key_suff or "data")+"_multihash"
 
-    if job_data.get("media_embed",True):
-        b64 = base64.b64encode(open(media_file,"rb").read()).decode('ascii')
+    if job_data.get("media_embed", True):
+        b64 = base64.b64encode(open(media_file, "rb").read()).decode('ascii')
         nft_data.update({
             media_key: b64,
-            "encoding":"base64",
+            "encoding": "base64",
         })
 
     if job_data["media_multihash"]:
@@ -209,18 +211,18 @@ def makeobject(ctx, token, echo):
             "sig_pubkey_or_address": job_data["public_key_or_address"]
         })
 
-    out_object = json.dumps(nft_data, separators=(',',':'), sort_keys=True)
+    out_object = json.dumps(nft_data, separators=(',', ':'), sort_keys=True)
     if echo:
         print(out_object)
 
     files_written = 0
-    out_obj_file = token+"_object.json"
+    out_obj_file = f"{token}_object.json"
     files_written += _create_and_write_file(out_obj_file, out_object, eof="")
 
     if files_written == 1:
         print("An NFT object file was written. Please inspect for correctness, but")
         print("note that this file is in canonical form for signing - DO NOT EDIT!")
-        print("If changes are needed, delete " + out_obj_file + " and repeat steps")
+        print(f"If changes are needed, delete {out_obj_file} and repeat steps")
         print("above, editing the template file instead.")
         print("Next steps: validate and digitally sign the object file.")
     else:
@@ -234,6 +236,7 @@ VALIDATIONS = [
     "Attestation explicitly mentions token symbol",
     "Signature is valid",
 ]
+
 
 def _validate_nft_object(obj_json_str, token, signature):
     """ Validate json serialization of an NFT object.
@@ -265,7 +268,7 @@ def _validate_nft_object(obj_json_str, token, signature):
     if "\n" in obj_json_str:
         result = False
         rems.append("File contains line breaks")
-    round_trip_str = json.dumps(obj, separators=(',',':'), sort_keys=True)
+    round_trip_str = json.dumps(obj, separators=(',', ':'), sort_keys=True)
     if obj_json_str != round_trip_str:
         result = False
         rems.append("Round-trip decode/encode JSON did not preserve message")
@@ -274,7 +277,7 @@ def _validate_nft_object(obj_json_str, token, signature):
 
     ## Validation: Required JSON Keys
     ival += 1
-    result=True
+    result = True
     rems = []
     for key in [
             "type", "title", "artist", "attestation",
@@ -282,7 +285,7 @@ def _validate_nft_object(obj_json_str, token, signature):
     ]:
         if key not in obj:
             result = False
-            rems.append("Missing JSON key: "+key)
+            rems.append(f"Missing JSON key: {key}")
     # TODO: Check for image keys
     ret[ival] = result
     remarks[ival] = rems
@@ -317,44 +320,44 @@ def _validate_nft_object(obj_json_str, token, signature):
         found_match = False
         for addr in sigparse.addresses:
             if addr == ref_address:
-                rems.append("Recoverred MATCHING address: ==> %s"%addr)
+                rems.append(f"Recovered MATCHING address: ==> {addr}")
                 found_match = True
             else:
-                rems.append("Recoverred non-matching address: %s"%addr)
+                rems.append(f"Recovered non-matching address: {addr}")
         if not found_match:
-            rems.append(
-                "Could not recover address %s from signature." %
-                ref_address
-            )
+            rems.append(f"Could not recover address {ref_address} from signature.")
             result = False
     ret[ival] = result
     remarks[ival] = rems
 
     return (ret, remarks)
 
+
 def _present_validation_results(validations, remarks):
     PassFail = {True: "  Pass!!", False: "**FAILED**"}
     fieldwidth = max([len(i) for i in VALIDATIONS])+1
 
     for i in range(len(validations)):
-        tmplt = "  * %%-%ds %%s"%fieldwidth
-        print(tmplt%(VALIDATIONS[i]+":", PassFail[validations[i]]))
+        tmplt = "  * %%-%ds %%s" % fieldwidth
+        print(tmplt % (VALIDATIONS[i]+":", PassFail[validations[i]]))
         for rem in remarks[i]:
             print("        "+rem)
     print()
 
+
 def _assess_validations(validations):
     return all(validations)
 
-def _read_signature_from_file(filename, default = None):
+
+def _read_signature_from_file(filename, default=None):
     try:
-        with open(filename,"rb") as f:
+        with open(filename, "rb") as f:
             signature = f.read().decode('utf-8').strip()
     except:
         if default is not None:
             signature = default
         else:
-            raise Exception("Could not read signature file %s"%filename)
+            raise Exception(f"Could not read signature file {filename}")
     return signature
 
 
@@ -372,14 +375,14 @@ def validate(ctx, token, echo):
     """
     _valid_SYMBOL_or_throw(token)
 
-    obj_file = token+"_object.json"
-    with open(obj_file,"rb") as f:
+    obj_file = f"{token}_object.json"
+    with open(obj_file, "rb") as f:
         obj_string = f.read().decode('utf-8')
 
-    sig_file = token+"_sig.txt"
+    sig_file = f"{token}_sig.txt"
     signature = _read_signature_from_file(sig_file, default="")
 
-    print("Validation Results for "+obj_file+":\n")
+    print(f"Validation Results for {obj_file}:\n")
     (validations, remarks) = _validate_nft_object(obj_string, token, signature)
     _present_validation_results(validations, remarks)
 
@@ -395,18 +398,18 @@ def inspect(ctx, token):
     """
     _valid_SYMBOL_or_throw(token)
 
-    try: # Try to get ASSET from chain:
+    try:  # Try to get ASSET from chain:
         A = Asset(token)
-        print("Found asset %s (id %s)."%(A["symbol"], A["id"]))
-        desc = A.get("description","N/A")
-        desc.update(desc) # desc lost get method for some reason.. duck=/=goose.
+        print(f"Found asset {A['symbol']} (id {A['id']})")
+        desc = A.get("description", "N/A")
+        desc.update(desc)  # desc lost get method for some reason.. duck=/=goose.
         loaded_from_file = False
     except:
-        print("Asset "+token+" not found in blockchain.")
-        final_file = token+"_final.json"
-        print("Loading file "+final_file+"...")
+        print(f"Asset {token} not found in blockchain.")
+        final_file = f"{token}_final.json"
+        print(f"Loading file {final_file}...")
         try:
-            with open(final_file,"rb") as f:
+            with open(final_file, "rb") as f:
                 final_string = f.read().decode('utf-8')
         except:
             print("Error: Could not load file.")
@@ -416,23 +419,23 @@ def inspect(ctx, token):
         loaded_from_file = True
 
     if not isinstance(desc, dict):
-        print ("Asset "+token+" is not an NFT.")
+        print(f"Asset {token} is not an NFT.")
         return
-    if not "nft_object" in desc:
-        print ("Asset "+token+" is not an NFT.")
+    if "nft_object" not in desc:
+        print(f"Asset {token} is not an NFT.")
         return
     nft_object = desc["nft_object"]
-    nft_string = json.dumps(nft_object, separators=(',',':'), sort_keys=True)
+    nft_string = json.dumps(nft_object, separators=(',', ':'), sort_keys=True)
     signature = desc.get("nft_signature")
 
-    print("\nValidation Results for "+token+":\n")
+    print(f"\nValidation Results for {token}:\n")
     (validations, remarks) = _validate_nft_object(nft_string, token, signature)
     _present_validation_results(validations, remarks)
 
     if loaded_from_file:
         print("Next Steps: If all validations are passing, the next step is to deploy")
-        print("with 'nft deploy "+token+"', or, if you are not the asset issuer,")
-        print("to give "+final_file+" to your issuing agent for deployment.")
+        print(f"with 'nft deploy {token}', or, if you are not the asset issuer,")
+        print(f"to give {final_file} to your issuing agent for deployment.")
 
 
 @nft.command()
@@ -463,13 +466,13 @@ def sign(ctx, token, sig, echo):
     template_data = json.load(open(template_file))
     job_data = template_data["asset"]
 
-    obj_file = token+"_object.json"
-    with open(obj_file,"rb") as f:
+    obj_file = f"{token}_object.json"
+    with open(obj_file, "rb") as f:
         obj_string = f.read().decode('utf-8')
 
     if not sig:
         wif_file = job_data["wif_file"]
-        with open(wif_file,"rb") as f:
+        with open(wif_file, "rb") as f:
             wif_str = f.read().decode('utf-8').strip()
         out_sig = hexlify(sign_message(obj_string, wif_str)).decode("ascii")
     else:
@@ -479,7 +482,7 @@ def sign(ctx, token, sig, echo):
         print(out_sig)
 
     files_written = 0
-    out_sig_file = token+"_sig.txt"
+    out_sig_file = f"{token}_sig.txt"
     files_written += _create_and_write_file(out_sig_file, out_sig, eof="\n")
 
     if files_written == 1:
@@ -506,14 +509,14 @@ def finalize(ctx, token, echo):
     """
     _valid_SYMBOL_or_throw(token)
 
-    template_file = token+"_template.json"
+    template_file = f"{token}_template.json"
     template_data = json.load(open(template_file))
     job_data = template_data["asset"]
 
-    obj_file = token+"_object.json"
+    obj_file = f"{token}_object.json"
     obj_data = json.load(open(obj_file))
 
-    sig_file = token+"_sig.txt"
+    sig_file = f"{token}_sig.txt"
     signature = _read_signature_from_file(sig_file)
 
     desc_data = {
@@ -541,18 +544,17 @@ def finalize(ctx, token, echo):
         print(out_final)
 
     files_written = 0
-    out_final_file = token+"_final.json"
+    out_final_file = f"{token}_final.json"
     files_written += _create_and_write_file(out_final_file, out_final, eof="")
 
     if files_written == 1:
         print("An asset deployment file was written. Please inspect for correctness,")
         print("but note that this file is in canonical form - DO NOT EDIT!")
-        print("If changes are needed, delete " + out_final_file + " and repeat some")
+        print(f"If changes are needed, delete {out_final_file} and repeat some")
         print("or all of the steps above.")
         print("Next steps: inspect and deploy the asset.")
     else:
         print("Some files were not written. Check files and try again.")
-
 
 
 def _yes_i_mean_it(ctx, param, value):
@@ -564,6 +566,7 @@ def _yes_i_mean_it(ctx, param, value):
     ctx.obj["unsigned"] = ctx.obj["unsigned"] or nosign
     ctx.obj["nobroadcast"] = ctx.obj["nobroadcast"] or nosign
     return value
+
 
 @nft.command()
 @click.argument("token")
@@ -585,7 +588,7 @@ def deploy(ctx, token, account, yes):
     """
     _valid_SYMBOL_or_throw(token)
 
-    final_file = token+"_final.json"
+    final_file = f"{token}_final.json"
     try:
         final_data = json.load(open(final_file))
     except:
@@ -593,13 +596,13 @@ def deploy(ctx, token, account, yes):
         return
     # TODO: some validation of final_string and desc
     desc = final_data["description"]
-    desc_string = json.dumps(desc, separators=(',',':'), sort_keys=True)
+    desc_string = json.dumps(desc, separators=(',', ':'), sort_keys=True)
 
-    if not isinstance(desc, dict) or not "nft_object" in desc:
-        print (final_file+" does not describe an NFT deployment.")
+    if not isinstance(desc, dict) or "nft_object" not in desc:
+        print(f"{final_file} does not describe an NFT deployment.")
         return
     nft_object = desc["nft_object"]
-    nft_string = json.dumps(nft_object, separators=(',',':'), sort_keys=True)
+    nft_string = json.dumps(nft_object, separators=(',', ':'), sort_keys=True)
     signature = desc.get("nft_signature")
 
     (validations, remarks) = _validate_nft_object(nft_string, token, signature)
@@ -634,10 +637,10 @@ def deploy(ctx, token, account, yes):
         "lock_max_supply": True
     }
 
-    #print_tx(ctx.blockchain.create_asset(
-    from .asset_create_hack import _create_asset # TEMP workaround for new permissions
-    print_tx(_create_asset(      # TEMP use modified create_asset
-        instance=ctx.blockchain, # TEMP (normally would be implicit 'self')
+    # print_tx(ctx.blockchain.create_asset(
+    from asset_create_hack import _create_asset  # TEMP workaround for new permissions
+    print_tx(_create_asset(       # TEMP use modified create_asset
+        instance=ctx.blockchain,  # TEMP (normally would be implicit 'self')
         symbol=token,
         precision=PRECISION,
         max_supply=final_data["max_supply"],

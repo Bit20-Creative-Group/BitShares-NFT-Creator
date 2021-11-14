@@ -6,7 +6,7 @@ from bitshares import BitShares
 from bitshares.exceptions import WrongMasterPasswordException
 from bitshares.instance import set_shared_bitshares_instance
 from functools import update_wrapper
-from .ui import print_message
+from ui import print_message
 
 log = logging.getLogger(__name__)
 

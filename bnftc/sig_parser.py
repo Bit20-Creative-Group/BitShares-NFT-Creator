@@ -204,7 +204,7 @@ if __name__ == '__main__':
     print()
 
     print("Recovered Addresses:")
-    print(*["  %s\n"%addr for addr in get_addresses_from_sig(message,sigstring)], sep='')
+    print(*["  %s\n"%addr for addr in get_addresses_from_sig(message, sigstring)], sep='')
 
     SP = SigParser(message, sigstring)
     print("Parser has sigbytes: ", SP.hasSigBytes())

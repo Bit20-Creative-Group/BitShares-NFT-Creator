@@ -687,7 +687,7 @@ def generate_info(ctx, token):
     token = token.upper()
     try:
         asset_token = Asset(token)
-        print(f'try to generate info for {token}')
+        print(f'looking up info for {token}')
         options = asset_token['options']
         desc = json.loads(options['description'])
         if 'nft_object' in desc.keys():
@@ -733,8 +733,9 @@ def generate_info(ctx, token):
                 'tags': '',
                 'acknowledgments': ''
             }
-        with open(f'{token}_update.txt', 'w') as file:
+        with open(f'{token}_update.json', 'w') as file:
             json.dump(editable_data, file, indent=4)
+        print(f'output {token}_update.json')
     except BaseException as e:
         print(f'No such asset: {token} {e}')
 

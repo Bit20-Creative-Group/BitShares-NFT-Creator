@@ -9,10 +9,10 @@ from bitshares.amount import Amount
 from bitshares.asset import Asset
 from bitshares.price import Price
 from bitsharesbase.account import PublicKey
-from decorators import online, unlock
-from sig_parser import SigParser
-from main import main, config
-from ui import print_tx, format_tx, print_table, print_message
+from .decorators import online, unlock
+from .sig_parser import SigParser
+from .main import main, config
+from .ui import print_tx, format_tx, print_table, print_message
 from binascii import hexlify, unhexlify
 from graphenebase.ecdsa import sign_message, verify_message
 from graphenebase.account import Address
@@ -89,7 +89,7 @@ def template(ctx, token, title, artist, market, echo, extra):
 
     short_name = title[0:32]  # short_name field limit in Ref UI supposedly
 
-    media_file = token+"_media.png"
+    media_file = f"{token}_media.png"
     for filesuffix in ["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "gif", "GIF"]:
         maybe_file = f"{token}_media.{filesuffix}"
         if os.path.isfile(maybe_file):
@@ -110,7 +110,7 @@ def template(ctx, token, title, artist, market, echo, extra):
         "media_embed": True,
         "media_multihash": "",
         "public_key_or_address": "Artist's public key or address used to sign NFT object",
-        "wif_file":"privatekey.wif",
+        "wif_file": "privatekey.wif",
     }
     nft_template = {
         "type": "NFT/ART/VISUAL",
@@ -539,7 +539,7 @@ def finalize(ctx, token, echo):
         "whitelist_markets": whitelist_markets,
     }
 
-    out_final = json.dumps(final_data, separators=(',',':'), sort_keys=True)
+    out_final = json.dumps(final_data, separators=(',', ':'), sort_keys=True)
     if echo:
         print(out_final)
 
@@ -658,3 +658,90 @@ def deploy(ctx, token, account, yes):
         print("for real, please pass --yes option.")
 
     return
+
+
+"""
+Update Asset Section
+"""
+
+
+@nft.group()
+def update():
+    """Commands for updating assets
+
+    Using the generate-info command, it will generate
+    a text file that you can edit. This file will then be
+    used with the update-asset command to fully update
+    the asset. This asset updater only deals with the options
+    in an asset and nothing that can harm the asset.
+    """
+    pass
+
+
+@update.command()
+@click.pass_context
+@click.argument("token")
+def generate_info(ctx, token):
+    """Generate a text file to edit
+    """
+    token = token.upper()
+    try:
+        asset_token = Asset(token)
+        print(f'try to generate info for {token}')
+        options = asset_token['options']
+        desc = json.loads(options['description'])
+        if 'nft_object' in desc.keys():
+            nft_object = desc['nft_object']
+            editable_data = {}
+            options_keys = ['whitelist_markets', 'blacklist_markets']
+            desc_keys = ['main', 'market', 'nft_signature', 'short_name']
+            nft_obj_keys = ['artist', 'attestation', 'encoding', 'holder_license', 'license', 'media_png', 'narrative', 'sig_pubkey_or_address', 'title', 'type', 'flags', 'tags']
+            for key in options_keys:
+                if key in options.keys():
+                    editable_data[key] = options[key]
+                else:
+                    editable_data[key] = ''
+            for key in desc_keys:
+                if key in desc.keys():
+                    editable_data[key] = desc[key]
+                else:
+                    editable_data[key] = ''
+            for key in nft_obj_keys:
+                if key in nft_object.keys():
+                    editable_data[key] = nft_object[key]
+                else:
+                    editable_data[key] = ''
+        else:
+            editable_data = {
+                'whitelist_markets': [],
+                'blacklist_markets': [],
+                'nft_main': '',
+                'nft_market': '',
+                'nft_signature': '',
+                'short_name': '',
+                'artist': '',
+                'attestation': f'I, (artist), originator of the work herein, hereby commit this artwork to the BitShares blockchain, to live as the token named {token}. Further, I attest that the work herein is a first edition, and that no prior tokenization of this artwork exists or has been authorized by me.',
+                'encoding': '',
+                'holder_license': '',
+                'license': 'CC BY-NC-SA-4.0',
+                'media_png': '',
+                'narrative': 'Artist describes work here...',
+                'sig_pubkey_or_address': 'Artist\'s public key or address used to sign NFT object',
+                'title': 'title',
+                'type': '',
+                'flags': '',
+                'tags': '',
+                'acknowledgments': ''
+            }
+        with open(f'{token}_update.txt', 'w') as file:
+            json.dump(editable_data, file, indent=4)
+    except BaseException as e:
+        print(f'No such asset: {token} {e}')
+
+
+@update.command()
+@click.pass_context
+def update_asset(ctx):
+    """Use updated text file for updating asset
+    """
+    pass

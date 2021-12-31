@@ -877,6 +877,14 @@ def push(ctx, token, account, novalidate, yes):
     """
     _valid_SYMBOL_or_throw(token)
 
+    try:  # Try to get ASSET from chain:
+        print(f"Looking for asset {token}...")
+        A = Asset(token)
+        print(f"Found asset {A['symbol']} (id {A['id']}). We can update this asset.")
+    except:
+        print(f"Asset {token} not found in blockchain. Cannot update non-existent asset.")
+        return
+
     update_file = f"{token}_update.json"
     try:
         update_data = json.load(open(update_file))
@@ -885,14 +893,23 @@ def push(ctx, token, account, novalidate, yes):
         return
 
     desc = update_data["description"]
-    desc_string = json.dumps(desc, separators=(',', ':'), sort_keys=True)
+    if isinstance(desc, str):
+        desc_string = desc
+    else:
+        desc_string = json.dumps(desc, separators=(',', ':'), sort_keys=True)
 
     if not novalidate:
 
+        if isinstance(desc, str):
+            try:
+                desc = json.loads(desc)
+            except:
+                pass
+
         if not isinstance(desc, dict) or "nft_object" not in desc:
-            print(f"{update_file} does not describe an NFT deployment or is not in")
-            print(f"object form. If you are sure of what you are doing and wish to")
-            print(f"push anyway, run again with --novalidate.")
+            print(f"{update_file} does not describe an NFT deployment or")
+            print(f"is not in object form. If you are sure of what you are doing and")
+            print(f"wish to push anyway, run again with --novalidate.")
             return
 
         nft_object = desc["nft_object"]
@@ -911,5 +928,22 @@ def push(ctx, token, account, novalidate, yes):
 
     else:
         print("Validations skipped becuse you passed --novalidate.")
+
+    new_options = update_data
+    new_options.update({
+        "description": desc_string
+    })
+
+    from .asset_create_hack import _update_asset  # (Unimplemented in python-bitshares)
+    print_tx(_update_asset(       # TEMP using our own implementation
+        instance=ctx.blockchain,  # TEMP (normally would be implicit 'self')
+        asset_to_update=A['id'],
+        new_options=new_options,
+        account=account,
+    ))
+
+    if not yes:
+        print("NOTICE: This was a dry run, asset_create not broadcast. To deploy")
+        print("for real, please pass --yes option.")
 
     return

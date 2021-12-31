@@ -1,4 +1,7 @@
 #
+# Provides a corrected override for create_asset and implements the
+# missing update_asset from bitshares/bitshares.py.
+#
 
 from bitsharesbase import operations
 from bitshares.account import Account
@@ -172,3 +175,38 @@ def _create_asset(
 
     return self.finalizeOp(op, account, "active", **kwargs)
 
+
+##
+# This isn't implemented in python-bitshares, so we implement it here.
+#
+# Note this implementation doesn't have much "smarts" - it just assumes it's
+# being passed a correct updated asset_options object. So this isn't
+# necessarily suitable for pushing upstream to python-bitshares.
+#
+def _update_asset(
+        instance,  # 'self' in original
+        asset_to_update,
+        new_options,
+        account=None,
+        **kwargs
+):
+    self = instance; # Mimic: act like we're a method
+
+    if not account:
+        if "default_account" in self.config:
+            account = self.config["default_account"]
+    if not account:
+        raise ValueError("You need to provide an account")
+    account = Account(account, blockchain_instance=self)
+
+    op = operations.Asset_update(
+        **{
+            "fee": {"amount": 0, "asset_id": "1.3.0"},
+            "issuer": account["id"],
+            "asset_to_update": asset_to_update,
+            "new_options": new_options,
+            "extensions": [],
+        }
+    )
+
+    return self.finalizeOp(op, account, "active", **kwargs)

@@ -581,7 +581,7 @@ def _yes_i_mean_it(ctx, param, value):
 @online
 @unlock
 def deploy(ctx, token, account, yes):
-    """ Deploy a finalized NTF token.
+    """ Deploy a finalized NFT token.
 
     Crafts the asset_create operation and broadcasts. Must include '--yes' option
     for broadcast, else we do a dry-run.
@@ -638,7 +638,7 @@ def deploy(ctx, token, account, yes):
     }
 
     # print_tx(ctx.blockchain.create_asset(
-    from asset_create_hack import _create_asset  # TEMP workaround for new permissions
+    from .asset_create_hack import _create_asset  # TEMP workaround for new permissions
     print_tx(_create_asset(       # TEMP use modified create_asset
         instance=ctx.blockchain,  # TEMP (normally would be implicit 'self')
         symbol=token,
@@ -667,82 +667,249 @@ Update Asset Section
 
 @nft.group()
 def update():
-    """Commands for updating assets
+    """Commands for updating existing tokens.
 
-    Using the generate-info command, it will generate
-    a text file that you can edit. This file will then be
-    used with the update-asset command to fully update
-    the asset. This asset updater only deals with the options
-    in an asset and nothing that can harm the asset.
+    Updating an existing NFT token or adding NFT properties to an
+    existing non-NFT token is a multi-step process using these tools.
+    First, use:
+
+        `nft update begin TOKEN`
+
+    to create two files, which will be named TOKEN_current.json and
+    TOKEN_update.json.  Ater `begin`, these files each contain the
+    state of the token as found on the blockchain.  Edit the latter
+    file until it represents the desired token state. After editing,
+    you may need to generate a new signature. You can produce an
+    updated object blob in canonical form with:
+
+        `nft update canonicalize TOKEN`
+
+    Next, check that the updates pass validations with:
+
+        `nft update check TOKEN`
+
+    And finallypush the update to the chain with:
+
+        `nft update push TOKEN`
+
+    which will update the token to reflect the contents of
+    TOKEN_update.json.
+
     """
     pass
 
 
 @update.command()
-@click.pass_context
 @click.argument("token")
-def generate_info(ctx, token):
-    """Generate a text file to edit
+@click.option(
+    "--echo", is_flag=True,
+    help="Echo object to stdout in addition to writing files."
+)
+@click.option(
+    "--noobjectify", is_flag=True,
+    help="Do not objectify description string."
+)
+@click.pass_context
+@online
+def begin(ctx, token, echo, noobjectify):
+    """ Generate editable object files for TOKEN.
+
+    This will generate two identical files, named TOKEN_current.json
+    and TOKEN_update.json. These files will contain the current state
+    of the token as retrieved from the blockchain. The former is
+    intended to be kept as a reference, and the latter to be edited
+    until it represents the desired state of the token.  Once the
+    latter file is edited, continue with `nft update push`.
+
+    Note that unless --noobjectify is specified, the asset options
+    'description' field, a text field into which stringified JSON is
+    typically inserted, will be converted to a JSON object.  This
+    facilitates editing, but may break signatures if the original
+    contents were not in canonical form. This is usually not
+    problematic, since if you are editing nft_object fields, a new
+    signature will need to be generated anyway.
+
     """
-    token = token.upper()
-    try:
-        asset_token = Asset(token)
-        print(f'looking up info for {token}')
-        options = asset_token['options']
-        desc = json.loads(options['description'])
-        if 'nft_object' in desc.keys():
-            nft_object = desc['nft_object']
-            editable_data = {}
-            options_keys = ['whitelist_markets', 'blacklist_markets']
-            desc_keys = ['main', 'market', 'nft_signature', 'short_name']
-            nft_obj_keys = ['artist', 'attestation', 'encoding', 'holder_license', 'license', 'media_png', 'narrative', 'sig_pubkey_or_address', 'title', 'type', 'flags', 'tags']
-            for key in options_keys:
-                if key in options.keys():
-                    editable_data[key] = options[key]
-                else:
-                    editable_data[key] = ''
-            for key in desc_keys:
-                if key in desc.keys():
-                    editable_data[key] = desc[key]
-                else:
-                    editable_data[key] = ''
-            for key in nft_obj_keys:
-                if key in nft_object.keys():
-                    editable_data[key] = nft_object[key]
-                else:
-                    editable_data[key] = ''
-        else:
-            editable_data = {
-                'whitelist_markets': [],
-                'blacklist_markets': [],
-                'nft_main': '',
-                'nft_market': '',
-                'nft_signature': '',
-                'short_name': '',
-                'artist': '',
-                'attestation': f'I, (artist), originator of the work herein, hereby commit this artwork to the BitShares blockchain, to live as the token named {token}. Further, I attest that the work herein is a first edition, and that no prior tokenization of this artwork exists or has been authorized by me.',
-                'encoding': '',
-                'holder_license': '',
-                'license': 'CC BY-NC-SA-4.0',
-                'media_png': '',
-                'narrative': 'Artist describes work here...',
-                'sig_pubkey_or_address': 'Artist\'s public key or address used to sign NFT object',
-                'title': 'title',
-                'type': '',
-                'flags': '',
-                'tags': '',
-                'acknowledgments': ''
-            }
-        with open(f'{token}_update.json', 'w') as file:
-            json.dump(editable_data, file, indent=4)
-        print(f'output {token}_update.json')
-    except BaseException as e:
-        print(f'No such asset: {token} {e}')
+    _valid_SYMBOL_or_throw(token)
+
+    asset_object = Asset(token)
+    print(f'looking up info for {token}')
+
+    # Get asset 'options' structure, which is the only the only thing
+    # that can meaningfully be updated with asset_update_operation.
+    options = asset_object['options']
+
+    if not noobjectify:
+        try: # Objectify description string for easier editing.
+            options["description"] = json.loads(options["description"])
+        except:
+            pass
+
+    options_jstring = json.dumps(options, indent=4)
+
+    if echo:
+        print(options_jstring)
+
+    files_written = 0
+    timestr = ctx.blockchain.info()["time"].replace('-','').replace(':','')
+    out_file_1 = f"{token}_current-{timestr}.json"
+    out_file_2 = f"{token}_update.json"
+    files_written += _create_and_write_file(out_file_1, options_jstring, eof="\n")
+    if files_written == 1:
+        files_written += _create_and_write_file(out_file_2, options_jstring, eof="\n")
+
+    if files_written == 2:
+        print("Update files have been written. Edit as needed, then")
+        print("follow up with 'nft update push' command.")
+    else:
+        print("Some files were not written. Check files and try again.")
+
+    return
 
 
 @update.command()
+@click.argument("token")
+@click.option(
+    "--echo", is_flag=True,
+    help="Echo object to stdout in addition to writing files."
+)
 @click.pass_context
-def update_asset(ctx):
-    """Use updated text file for updating asset
+def canonicalize(ctx, token, echo):
+    """ Write canonicalized object for signing.
+
+    If you are changing nft_object fields, or if the original
+    nft_object was not in canonical form and you are updating it, then
+    you will need the nft_object in stringified, canonicalized form,
+    in order to apply a digital signature to it.  This will read the
+    nft_object element from TOKEN_update.json, and produce
+    TOKEN_update_object.json for this purpose.  (This is the same
+    format as you would expect from `nft makeobject` if you were
+    creating the NFT from scratch.)
+
+    Note that this output file is NOT referenced when pushing updates
+    to blockchain with `nft update push`. This file is only intended
+    to facilitate digital signing.
+
     """
-    pass
+    _valid_SYMBOL_or_throw(token)
+
+    update_file = f"{token}_update.json"
+    with open(update_file, "rb") as f:
+        obj_string = f.read().decode('utf-8')
+
+    nft_obj = json.loads(obj_string)["description"]["nft_object"]
+    canonical = json.dumps(nft_obj, separators=(',',':'), sort_keys=True)
+
+    if echo:
+        print(canonical)
+
+    files_written = 0
+    out_file = f"{token}_update_object.json"
+    files_written += _create_and_write_file(out_file, canonical, eof="")
+
+    if files_written == 1:
+        print("Canonicalized update object file has been written.")
+        print("Generate signature as needed.")
+    else:
+        print("Some files were not written. Check files and try again.")
+
+    return
+
+
+@update.command()
+@click.argument("token")
+@click.pass_context
+def check(ctx, token):
+    """ Check validations on updated NFT object.
+
+    Reads [TOKEN]_update.json and subjects to a battery of tests.
+    """
+    _valid_SYMBOL_or_throw(token)
+
+    update_file = f"{token}_update.json"
+    try:
+        update_data = json.load(open(update_file))
+    except:
+        print("Error: Could not load file.")
+        return
+
+    desc = update_data["description"]
+    if isinstance(desc, str):
+        desc = json.loads(desc)
+
+    if not isinstance(desc, dict) or "nft_object" not in desc:
+        print(f"{update_file} does not describe an NFT deployment")
+        print(f"or is not in object form. Cannot run validations.")
+        return
+
+    nft_object = desc["nft_object"]
+    nft_string = json.dumps(nft_object, separators=(',', ':'), sort_keys=True)
+    signature = desc.get("nft_signature")
+
+    (validations, remarks) = _validate_nft_object(nft_string, token, signature)
+    _present_validation_results(validations, remarks)
+
+    return
+
+
+@update.command()
+@click.argument("token")
+@click.option(
+    "--account", help="Active account (else use wallet default)."
+)
+@click.option(
+    "--novalidate", help="Don't validate description field.",
+    is_flag=True, callback=_yes_i_mean_it
+)
+@click.option(
+    "--yes", help="Yes, really do it, (else dry run).",
+    is_flag=True, callback=_yes_i_mean_it
+)
+@click.pass_context
+@online
+@unlock
+def push(ctx, token, account, novalidate, yes):
+    """ Push updated TOKEN to the blockchain.
+
+    This will broadcast an asset_update operation for TOKEN using the
+    asset object data found in TOKEN_update.json.
+
+    """
+    _valid_SYMBOL_or_throw(token)
+
+    update_file = f"{token}_update.json"
+    try:
+        update_data = json.load(open(update_file))
+    except:
+        print("Error: Could not load file.")
+        return
+
+    desc = update_data["description"]
+    desc_string = json.dumps(desc, separators=(',', ':'), sort_keys=True)
+
+    if not novalidate:
+
+        if not isinstance(desc, dict) or "nft_object" not in desc:
+            print(f"{update_file} does not describe an NFT deployment or is not in")
+            print(f"object form. If you are sure of what you are doing and wish to")
+            print(f"push anyway, run again with --novalidate.")
+            return
+
+        nft_object = desc["nft_object"]
+        nft_string = json.dumps(nft_object, separators=(',', ':'), sort_keys=True)
+        signature = desc.get("nft_signature")
+
+        (validations, remarks) = _validate_nft_object(nft_string, token, signature)
+
+        if not _assess_validations(validations):
+            print("All validations must pass in order to deploy. Please")
+            print("re-run 'nft validate' for details on validation failures.")
+            print(f"If you are sure of what you are doing and wish to push anyway,")
+            print(f"run again with --novalidate.")
+            return
+        print("Validations PASS.")
+
+    else:
+        print("Validations skipped becuse you passed --novalidate.")
+
+    return

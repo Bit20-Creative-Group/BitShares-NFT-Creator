@@ -281,12 +281,35 @@ def _validate_nft_object(obj_json_str, token, signature):
     rems = []
     for key in [
             "type", "title", "artist", "attestation",
-            "narrative", "sig_pubkey_or_address", "encoding"
+            "narrative", "sig_pubkey_or_address"
     ]:
         if key not in obj:
             result = False
             rems.append(f"Missing JSON key: {key}")
-    # TODO: Check for image keys
+    num_media_keys = 0
+    for key in [
+            "media_png", "media_jpg", "media_jpeg", "media_gif"
+    ]:
+        if key in obj:
+            num_media_keys += 1
+    num_multihash_keys = 0
+    for key in [
+            "media_png_multihash", "media_jpg_multihash",
+            "media_jpeg_multihash", "media_gif_multihash"
+    ]:
+        if key in obj:
+            num_multihash_keys += 1
+    if num_media_keys + num_multihash_keys == 0:
+        result = False
+        rems.append(f"No media key found.")
+    if num_media_keys + num_multihash_keys > 1:
+        # (Note: this one might be too strict - there is perhaps a
+        #  use case for having one each of a media and multihash key.)
+        result = False
+        rems.append(f"Too many media keys found or redundant media and multihash.")
+    if num_media_keys > 0 and "encoding" not in obj:
+        result = False
+        rems.append(f"Missing JSON key: encoding (required for embedded media)")
     ret[ival] = result
     remarks[ival] = rems
 
